@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Юмакс</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="auth-screen">
+        <h1>Вход в CRM Юмакс</h1>
+        <input type="text" id="username" placeholder="Логин" value="admin"><br><br>
+        <input type="password" id="password" placeholder="Пароль" value="admin123"><br><br>
+        <button onclick="login()">Войти</button>
+    </div>
+
+    <div id="main-screen" style="display: none;">
+        <header>
+            <h1>CRM Юмакс</h1>
+            <button onclick="logout()">Выйти</button>
+        </header>
+        
+        <button onclick="showTab('applications')">Заявки</button>
+        <button onclick="showTab('courses')">Курсы</button>
+        
+        <div id="content"></div>
+    </div>
+
+    <!-- Модальное окно создания заявки -->
+    <div id="modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h2>Новая заявка</h2>
+            <form id="application-form">
+                <label>ФИО ученика:</label><br>
+                <input type="text" id="student_name" required><br><br>
+                
+                <label>Класс (9-11):</label><br>
+                <input type="number" id="grade" min="9" max="11" required><br><br>
+                
+                <label>Телефон:</label><br>
+                <input type="tel" id="phone" required><br><br>
+                
+                <label>Email (необязательно):</label><br>
+                <input type="email" id="email"><br><br>
+                
+                <label>Курс:</label><br>
+                <select id="course_id">
+                    <option value="">Выберите курс</option>
+                </select><br><br>
+                
+                <button type="button" onclick="submitApplication()">Создать заявку</button>
+                <button type="button" onclick="closeModal()">Отмена</button>
+            </form>
+        </div>
+    </div>
+    <!-- Модальное окно создания курса -->
+    <div id="course-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h2>Новый курс</h2>
+            <form id="course-form">
+                <label>Название курса:</label><br>
+                <input type="text" id="course_name" required><br><br>
+                
+                <label>Предмет:</label><br>
+                <input type="text" id="course_subject" required><br><br>
+                
+                <label>Класс (9-11):</label><br>
+                <input type="number" id="course_grade" min="9" max="11" required><br><br>
+                
+                <label>Формат обучения:</label><br>
+                <input type="text" id="course_format" placeholder="Онлайн / Оффлайн"><br><br>
+                
+                <label>Стоимость (руб):</label><br>
+                <input type="number" id="course_price" required><br><br>
+                
+                <label>Свободных мест:</label><br>
+                <input type="number" id="course_free_places" value="15" required><br><br>
+                
+                <button type="button" onclick="submitCourse()">Создать курс</button>
+                <button type="button" onclick="closeCourseModal()">Отмена</button>
+            </form>
+        </div>
+    </div>
+    <!-- Модальное окно подтверждения -->
+    <div id="confirm-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="width:320px;">
+            <h3 id="confirm-title">Подтверждение</h3>
+            <p id="confirm-text">Вы уверены?</p>
+            <div style="margin-top:20px; text-align:right;">
+                <button onclick="cancelConfirm()" style="background:#ccc;">Отмена</button>
+                <button onclick="executeConfirm()" style="background:#d32f2f; color:white;">Удалить</button>
+            </div>
+        </div>
+    </div>
+    <!-- Модальное окно редактирования заявки -->
+    <div id="edit-app-modal" class="modal" style="display:none;">
+        <div class="modal-content" style="width: 520px; max-width: 90vw;">
+            <h2>Редактировать заявку</h2>
+            
+            <label>ФИО ученика:</label><br>
+            <input type="text" id="edit_student_name" style="width:100%;" required><br><br>
+            
+            <label>Класс (9-11):</label><br>
+            <input type="number" id="edit_grade" min="9" max="11" style="width:100%;" required><br><br>
+            
+            <label>Телефон:</label><br>
+            <input type="tel" id="edit_phone" style="width:100%;" required><br><br>
+            
+            <label>Email:</label><br>
+            <input type="email" id="edit_email" style="width:100%;"><br><br>
+            
+            <label>Назначить менеджера:</label><br>
+            <select id="edit_manager_id" style="width:100%; padding:8px;"></select><br><br>
+            
+            <label>Курс:</label><br>
+            <select id="edit_course_id" style="width:100%; padding:8px;"></select><br><br>
+            
+            <div style="margin-top:20px; text-align:right;">
+                <button type="button" onclick="saveApplicationEdit()" style="padding:10px 20px;">Сохранить изменения</button>
+                <button type="button" onclick="closeEditAppModal()" style="padding:10px 20px; margin-left:10px;">Отмена</button>
+            </div>
+        </div>
+    </div>
+    <!-- Модальное окно редактирования курса -->
+    <div id="edit-course-modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <h2>Редактировать курс</h2>
+            <input type="hidden" id="edit_course_id">
+            
+            <label>Название курса:</label><br>
+            <input type="text" id="edit_course_name" required><br><br>
+            
+            <label>Предмет:</label><br>
+            <input type="text" id="edit_course_subject" required><br><br>
+            
+            <label>Класс (9-11):</label><br>
+            <input type="number" id="edit_course_grade" min="9" max="11" required><br><br>
+            
+            <label>Формат обучения:</label><br>
+            <input type="text" id="edit_course_format"><br><br>
+            
+            <label>Стоимость (руб):</label><br>
+            <input type="number" id="edit_course_price" required><br><br>
+            
+            <label>Свободных мест:</label><br>
+            <input type="number" id="edit_course_free_places" required><br><br>
+            
+            <button type="button" onclick="saveCourseEdit()">Сохранить изменения</button>
+            <button type="button" onclick="closeEditCourseModal()">Отмена</button>
+        </div>
+    </div>
+    <script src="script.js"></script>
+        <style>
+        .status-new { background-color: #bae6fd !important; color: #1e40af; font-weight: bold; }
+        .status-waiting { background-color: #fef08c !important; color: #854d0e; font-weight: bold; }
+        .status-overdue { background-color: #fca5a5 !important; color: #991b1b; font-weight: bold; }
+        .status-enrolled { background-color: #86efac !important; color: #166534; font-weight: bold; }
+        .status-rejected { background-color: #e2e8f0 !important; color: #475569; }
+    </style>
+</body>
+</html>
