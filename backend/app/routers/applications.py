@@ -1,43 +1,81 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_
 from app.core.database import get_db
-from app.models.models import Application, Course, User, UserRole
-from app.core.security import decode_token
+from app.models.models import Application, Course, User
+from app.models.user import Role
+from app.core.permissions import get_current_user
 
 router = APIRouter()
 
-# Получение текущего пользователя
-def get_current_user(authorization: str = None, db: Session = Depends(get_db)):
-    if not authorization or not authorization.startswith("Bearer "):
-        # fallback для теста
-        return db.query(User).filter(User.username == "admin").first()
-    
-    token = authorization.replace("Bearer ", "")
-    username = decode_token(token)
-    if not username:
-        return db.query(User).filter(User.username == "admin").first()
-    
-    user = db.query(User).filter(User.username == username).first()
-    return user
 
-@router.get("/")
-def get_applications(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    query = db.query(Application).options(joinedload(Application.course), joinedload(Application.manager))
+@router.get("/applications")
+def get_applications(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    search: str = None,
+    status: str = None
+):
+    """Получение заявок с учётом ролей"""
+    print(f"DEBUG: User = {current_user.username if current_user else None}, Role = {current_user.role if current_user else None}")
 
-    if current_user and current_user.role == UserRole.MANAGER:
-        query = query.filter(Application.manager_id == current_user.id)
+    query = db.query(Application).options(
+        joinedload(Application.course), 
+        joinedload(Application.manager)
+    )
 
-    return query.all()
+    if current_user:
+        if current_user.role == Role.MANAGER:
+            print("DEBUG: Применяем фильтр для MANAGER")
+            query = query.filter(Application.manager_id == current_user.id)
+        else:
+            print("DEBUG: Пользователь с ролью выше MANAGER — видит все")
 
-@router.get("/{app_id}")
-def get_application(app_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    app = db.query(Application).options(joinedload(Application.course), joinedload(Application.manager)).filter(Application.id == app_id).first()
+    # Поиск
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Application.student_name.ilike(search_term),
+                Application.phone.ilike(search_term)
+            )
+        )
+
+    # Фильтр по статусу
+    if status:
+        query = query.filter(Application.status == status)
+
+    result = query.all()
+    print(f"DEBUG: Найдено заявок: {len(result)}")
+    return result
+
+
+@router.get("/applications/{app_id}")
+def get_application(
+    app_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    app = db.query(Application).options(
+        joinedload(Application.course), 
+        joinedload(Application.manager)
+    ).filter(Application.id == app_id).first()
+
     if not app:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
+
+    if current_user and current_user.role == Role.MANAGER and app.manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+
     return app
 
-@router.post("/")
-def create_application(app_data: dict, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+
+@router.post("/applications")
+def create_application(
+    app_data: dict, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     if not current_user:
         raise HTTPException(status_code=401, detail="Не авторизован")
 
@@ -54,47 +92,55 @@ def create_application(app_data: dict, db: Session = Depends(get_db), current_us
         email=app_data.get("email"),
         course_id=app_data.get("course_id"),
         manager_id=current_user.id,
-        number=str(count)
+        number=str(count),
+        status=app_data.get("status", "new")
     )
     db.add(db_app)
     db.commit()
     db.refresh(db_app)
     return db_app
 
-@router.put("/{app_id}")
-def update_application(app_id: int, app_data: dict, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+
+@router.put("/applications/{app_id}")
+def update_application(
+    app_id: int, 
+    app_data: dict, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     app = db.query(Application).filter(Application.id == app_id).first()
     if not app:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
-    # Проверка прав по ТЗ
-    if current_user.role == UserRole.MANAGER and app.manager_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Вы можете редактировать только свои заявки")
+    # Жёсткая проверка прав
+    if current_user.role == Role.MANAGER:
+        if app.manager_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Вы можете редактировать только свои заявки")
 
-    if current_user.role == UserRole.SENIOR_MANAGER:
-        if app.manager and app.manager.role == UserRole.SENIOR_MANAGER and app.manager_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Вы не можете редактировать заявки других Сеньёров")
+    # Старший менеджер может редактировать все (или только свои — по желанию)
+    # Сейчас оставляем как есть — может все
 
     for key, value in app_data.items():
-        if value is not None and key != "id":
+        if value is not None and key not in ["id"]:
             setattr(app, key, value)
 
     db.commit()
     db.refresh(app)
     return app
 
-@router.delete("/{app_id}")
-def delete_application(app_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+
+@router.delete("/applications/{app_id}")
+def delete_application(
+    app_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     app = db.query(Application).filter(Application.id == app_id).first()
     if not app:
         raise HTTPException(status_code=404, detail="Заявка не найдена")
 
-    if current_user.role == UserRole.MANAGER and app.manager_id != current_user.id:
+    if current_user and current_user.role == Role.MANAGER and app.manager_id != current_user.id:
         raise HTTPException(status_code=403, detail="Вы можете удалять только свои заявки")
-
-    if current_user.role == UserRole.SENIOR_MANAGER:
-        if app.manager and app.manager.role == UserRole.SENIOR_MANAGER and app.manager_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Вы не можете удалять заявки других Сеньёров")
 
     if app.course_id:
         course = db.query(Course).filter(Course.id == app.course_id).first()

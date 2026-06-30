@@ -1,49 +1,28 @@
 from app.core.database import SessionLocal
-from app.models.models import User
+from app.models.user import User, Role
 from app.core.security import get_password_hash
-from app.models.models import UserRole
 
 db = SessionLocal()
 
 users = [
-    {
-        "username": "admin",
-        "full_name": "Главный Администратор",
-        "password": "admin123",
-        "role": UserRole.ADMIN
-    },
-    {
-        "username": "senior",
-        "full_name": "Старший Менеджер",
-        "password": "12345",
-        "role": UserRole.SENIOR_MANAGER
-    },
-    {
-        "username": "manager1",
-        "full_name": "Менеджер Иванов",
-        "password": "12345",
-        "role": UserRole.MANAGER
-    }
+    ('admin', 'admin123', Role.ADMIN, 'Администратор'),
+    ('senior', 'senior123', Role.SENIOR_MANAGER, 'Старший Менеджер'),
+    ('manager', 'manager123', Role.MANAGER, 'Менеджер')
 ]
 
-for u in users:
-    existing = db.query(User).filter(User.username == u["username"]).first()
-    if not existing:
+for username, password, role, full_name in users:
+    if not db.query(User).filter(User.username == username).first():
         user = User(
-            username=u["username"],
-            full_name=u["full_name"],
-            hashed_password=get_password_hash(u["password"]),
-            role=u["role"]
+            username=username,
+            full_name=full_name,
+            hashed_password=get_password_hash(password),
+            role=role
         )
         db.add(user)
-        print(f"✅ Создан пользователь: {u['username']} ({u['role']})")
+        print(f'✅ Создан: {username} ({role})')
     else:
-        print(f"Пользователь {u['username']} уже существует")
+        print(f'⏭ Уже существует: {username}')
 
 db.commit()
 db.close()
-
-print("\nГотово! Можно заходить:")
-print("admin / admin123")
-print("senior / 12345")
-print("manager1 / 12345")
+print('🎉 Готово! Тестовые пользователи созданы.')

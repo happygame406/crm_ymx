@@ -4,14 +4,17 @@ from app.core.database import get_db
 from app.models.models import Course, UserRole
 from app.routers.dependencies import get_current_user
 
-router = APIRouter()
+router = APIRouter()   # Без prefix
 
-@router.get("/")
+# Все курсы
+@router.get("/courses")
 def get_courses(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Все роли могут просматривать курсы"""
     return db.query(Course).all()
 
-@router.post("/")
+
+# Создание курса
+@router.post("/courses")
 def create_course(course_data: dict, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Только Администратор"""
     if current_user.role != UserRole.ADMIN:
@@ -30,7 +33,9 @@ def create_course(course_data: dict, db: Session = Depends(get_db), current_user
     db.refresh(course)
     return course
 
-@router.put("/{course_id}")
+
+# Редактирование курса
+@router.put("/courses/{course_id}")
 def update_course(course_id: int, course_data: dict, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Только Администратор"""
     if current_user.role != UserRole.ADMIN:
@@ -48,7 +53,9 @@ def update_course(course_id: int, course_data: dict, db: Session = Depends(get_d
     db.refresh(course)
     return course
 
-@router.delete("/{course_id}")
+
+# Удаление курса
+@router.delete("/courses/{course_id}")
 def delete_course(course_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     """Только Администратор"""
     if current_user.role != UserRole.ADMIN:

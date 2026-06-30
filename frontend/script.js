@@ -1,8 +1,11 @@
+// ===================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====================
 let token = localStorage.getItem('token');
+let userRole = localStorage.getItem('userRole');
 let pendingDelete = null;
 let editingAppId = null;
 let editingCourseId = null;
 
+// ===================== АВТОРИЗАЦИЯ =====================
 async function login() {
     const username = document.getElementById('username').value;
     const password = document.getElementById('password').value;
@@ -17,18 +20,48 @@ async function login() {
         if (res.ok) {
             const data = await res.json();
             token = data.access_token;
+            userRole = data.role || data.user?.role;
+
             localStorage.setItem('token', token);
+            localStorage.setItem('userRole', userRole);
+
             document.getElementById('auth-screen').style.display = 'none';
             document.getElementById('main-screen').style.display = 'block';
+
+            adaptUIByRole(userRole);
             showTab('applications');
         } else {
             alert('Неверный логин или пароль');
         }
     } catch (err) {
-        alert('Ошибка подключения');
+        alert('Ошибка подключения к серверу');
     }
 }
 
+// Адаптация интерфейса под роль пользователя
+function adaptUIByRole(role) {
+    if (!role) return;
+
+    const isAdmin = role === 'admin';
+    const isSenior = role === 'admin' || role === 'senior_manager';
+    const isManager = role === 'manager';
+
+    // Элементы только для Администратора
+    document.querySelectorAll('.admin-only').forEach(el => {
+        el.style.display = isAdmin ? 'block' : 'none';
+    });
+
+    // Элементы для Старшего менеджера и Админа
+    document.querySelectorAll('.senior-only').forEach(el => {
+        el.style.display = isSenior ? 'block' : 'none';
+    });
+
+    // Кнопка создания новой заявки
+    const createBtn = document.querySelector('button[onclick="openCreateModal()"]');
+    if (createBtn) createBtn.style.display = 'inline-block';
+}
+
+// ===================== API =====================
 async function apiCall(url, method = 'GET', body = null) {
     const headers = { 'Authorization': 'Bearer ' + token };
     if (body) headers['Content-Type'] = 'application/json';
@@ -38,7 +71,18 @@ async function apiCall(url, method = 'GET', body = null) {
         headers: headers,
         body: body ? JSON.stringify(body) : null
     });
-    if (!res.ok) throw new Error('Ошибка ' + res.status);
+
+    if (!res.ok) {
+        if (res.status === 403) {
+            alert('❌ Недостаточно прав для выполнения действия');
+        } else if (res.status === 401) {
+            alert('Сессия истекла. Войдите заново.');
+            logout();
+        } else {
+            throw new Error('Ошибка ' + res.status);
+        }
+        return null;
+    }
     return res.json();
 }
 
@@ -58,7 +102,7 @@ async function loadApplications(filter = {}) {
 
         if (params.toString()) url += '?' + params.toString();
 
-        const data = await apiCall(url);
+        const data = await apiCall(url) || [];
 
         let html = `<h2>Заявки</h2>
                     <div style="margin-bottom:15px; padding:10px; background:#f8fafc; border-radius:6px;">
@@ -80,7 +124,7 @@ async function loadApplications(filter = {}) {
                         <button onclick="resetFilters()" style="padding:8px 16px; background:#e2e8f0;">Сбросить</button>
                     </div>
                     <button onclick="openCreateModal()">+ Новая заявка</button>
-                    <table border="1" style="width:100%; margin-top:10px;">
+                    <table border="1" style="width:100%; margin-top:10px; border-collapse:collapse;">
                     <tr><th>№</th><th>Ученик</th><th>Класс</th><th>Телефон</th><th>Курс</th><th>Статус</th><th>Действия</th></tr>`;
 
         if (data.length === 0) {
@@ -89,32 +133,21 @@ async function loadApplications(filter = {}) {
             data.forEach(a => {
                 const courseName = a.course && a.course.name ? a.course.name : '-';
                 
-                let statusClass = '';
-                let statusText = a.status;
-
-                switch(a.status) {
-                    case 'new': statusClass = 'status-new'; statusText = 'Новая'; break;
-                    case 'waiting_call': statusClass = 'status-waiting'; statusText = 'Ожидает звонка'; break;
-                    case 'overdue': statusClass = 'status-overdue'; statusText = 'Просрочена'; break;
-                    case 'enrolled': statusClass = 'status-enrolled'; statusText = 'Записан'; break;
-                    case 'rejected': statusClass = 'status-rejected'; statusText = 'Отказ'; break;
-                }
-
                 html += `<tr>
                     <td>${a.number || ''}</td>
                     <td>${a.student_name}</td>
                     <td>${a.grade}</td>
                     <td>${a.phone}</td>
                     <td>${courseName}</td>
-                    <td class="${statusClass}">
-                        <select onchange="changeStatus(${a.id}, this.value)" style="background:transparent; border:none; font-size:14px; padding:4px; width:100%;">
-                            <option value="new" ${a.status === 'new' ? 'selected' : ''}>Новая</option>
-                            <option value="waiting_call" ${a.status === 'waiting_call' ? 'selected' : ''}>Ожидает звонка</option>
-                            <option value="overdue" ${a.status === 'overdue' ? 'selected' : ''}>Просрочена</option>
-                            <option value="enrolled" ${a.status === 'enrolled' ? 'selected' : ''}>Записан</option>
-                            <option value="rejected" ${a.status === 'rejected' ? 'selected' : ''}>Отказ</option>
-                        </select>
-                    </td>
+                        <td class="${getStatusClass(a.status)}">
+                            <select onchange="changeStatus(${a.id}, this.value)" style="background:transparent; border:none; font-size:14px; padding:4px; width:100%;">
+                                <option value="new" ${a.status === 'new' ? 'selected' : ''}>Новая</option>
+                                <option value="waiting_call" ${a.status === 'waiting_call' ? 'selected' : ''}>Ожидает звонка</option>
+                                <option value="overdue" ${a.status === 'overdue' ? 'selected' : ''}>Просрочена</option>
+                                <option value="enrolled" ${a.status === 'enrolled' ? 'selected' : ''}>Записан</option>
+                                <option value="rejected" ${a.status === 'rejected' ? 'selected' : ''}>Отказ</option>
+                            </select>
+                        </td>
                     <td>
                         <button onclick="editApplication(${a.id})" style="margin-right:5px;">✏️</button>
                         <button onclick="confirmDelete('application', ${a.id})" style="color:red;">🗑</button>
@@ -125,22 +158,18 @@ async function loadApplications(filter = {}) {
         html += '</table>';
         document.getElementById('content').innerHTML = html;
     } catch(e) {
+        console.error(e);
         document.getElementById('content').innerHTML = '<p>Ошибка загрузки заявок</p>';
     }
 }
 
 async function changeStatus(app_id, new_status) {
     if (!new_status) return;
-    
     try {
         await apiCall(`/api/applications/${app_id}`, 'PUT', { status: new_status });
-        // Не обновляем всю таблицу, чтобы не сбрасывать фильтры
-        console.log(`Статус заявки ${app_id} изменён на ${new_status}`);
-    } catch(e) {
-        console.error(e);
-        alert('Ошибка изменения статуса');
-        loadApplications(); // обновляем при ошибке
-    }
+        alert('✅ Статус обновлён!');
+        loadApplications();
+    } catch(e) {}
 }
 
 function applyFilters() {
@@ -154,21 +183,23 @@ function resetFilters() {
     document.getElementById('status-filter').value = '';
     loadApplications();
 }
-// ===================== ИЗМЕНЕНИЕ СТАТУСА =====================
-async function changeStatus(app_id, new_status) {
-    try {
-        await apiCall(`/api/applications/${app_id}`, 'PUT', { status: new_status });
-        alert('✅ Статус обновлён!');
-        loadApplications();
-    } catch(e) {
-        alert('Ошибка изменения статуса');
-        loadApplications(); // обновляем на случай ошибки
+
+function getStatusClass(status) {
+    switch(status) {
+        case 'new': return 'status-new';
+        case 'waiting_call': return 'status-waiting';
+        case 'overdue': return 'status-overdue';
+        case 'enrolled': return 'status-enrolled';
+        case 'rejected': return 'status-rejected';
+        default: return '';
     }
 }
-
+// ===================== РЕДАКТИРОВАНИЕ ЗАЯВКИ =====================
 async function editApplication(id) {
     try {
         const app = await apiCall(`/api/applications/${id}`);
+        if (!app) return;
+
         editingAppId = id;
 
         document.getElementById('edit_student_name').value = app.student_name || '';
@@ -181,7 +212,6 @@ async function editApplication(id) {
 
         document.getElementById('edit-app-modal').style.display = 'flex';
     } catch(e) {
-        console.error(e);
         alert('Не удалось загрузить данные заявки');
     }
 }
@@ -196,35 +226,31 @@ async function loadCoursesForEdit(selectedCourseId = null) {
             const option = document.createElement('option');
             option.value = c.id;
             option.textContent = `${c.name} (${c.grade} класс)`;
-            if (c.id === selectedCourseId) {
-                option.selected = true;
-            }
+            if (c.id === selectedCourseId) option.selected = true;
             select.appendChild(option);
         });
     } catch(e) {
         console.error("Не удалось загрузить курсы", e);
-        document.getElementById('edit_course_id').innerHTML = '<option value="">Ошибка загрузки курсов</option>';
     }
 }
 
 async function loadManagersForEdit(selectedManagerId = null) {
     try {
-        const users = await apiCall('/api/users');  // Нужно добавить этот роутер
+        const users = await apiCall('/api/users');
         const select = document.getElementById('edit_manager_id');
         select.innerHTML = '<option value="">Не назначен</option>';
 
         users.forEach(u => {
-            if (u.role === 'manager' || u.role === 'senior_manager' || u.role === 'admin') {
+            if (['manager', 'senior_manager', 'admin'].includes(u.role)) {
                 const option = document.createElement('option');
                 option.value = u.id;
-                option.textContent = `${u.full_name} (${u.role})`;
+                option.textContent = `${u.full_name || u.username} (${u.role})`;
                 if (u.id === selectedManagerId) option.selected = true;
                 select.appendChild(option);
             }
         });
     } catch(e) {
         console.error("Не удалось загрузить менеджеров", e);
-        document.getElementById('edit_manager_id').innerHTML = '<option value="">Ошибка загрузки</option>';
     }
 }
 
@@ -234,8 +260,6 @@ async function saveApplicationEdit() {
         return;
     }
 
-    const managerId = document.getElementById('edit_manager_id').value;
-    
     const formData = {
         student_name: document.getElementById('edit_student_name').value.trim(),
         grade: parseInt(document.getElementById('edit_grade').value),
@@ -243,40 +267,13 @@ async function saveApplicationEdit() {
         email: document.getElementById('edit_email').value.trim() || null,
         course_id: document.getElementById('edit_course_id').value ? 
                   parseInt(document.getElementById('edit_course_id').value) : null,
-        manager_id: managerId ? parseInt(managerId) : null
-    };
-
-    console.log("Сохраняем данные:", formData); // для отладки
-
-    try {
-        const result = await apiCall(`/api/applications/${editingAppId}`, 'PUT', formData);
-        console.log("Ответ сервера:", result);
-        
-        alert('✅ Изменения успешно сохранены!');
-        closeEditAppModal();
-        loadApplications();
-    } catch(e) {
-        console.error("Ошибка сохранения:", e);
-        alert('Ошибка сохранения изменений. Посмотри консоль (F12)');
-    }
-}
-
-async function saveApplicationEdit() {
-    if (!editingAppId) {
-        alert("ID заявки не найден");
-        return;
-    }
-
-    const formData = {
-        student_name: document.getElementById('edit_student_name').value.trim(),
-        grade: parseInt(document.getElementById('edit_grade').value),
-        phone: document.getElementById('edit_phone').value.trim(),
-        email: document.getElementById('edit_email').value.trim() || null
+        manager_id: document.getElementById('edit_manager_id').value ? 
+                    parseInt(document.getElementById('edit_manager_id').value) : null
     };
 
     try {
         await apiCall(`/api/applications/${editingAppId}`, 'PUT', formData);
-        alert('✅ Изменения сохранены!');
+        alert('✅ Изменения успешно сохранены!');
         closeEditAppModal();
         loadApplications();
     } catch(e) {
@@ -290,39 +287,13 @@ function closeEditAppModal() {
     editingAppId = null;
 }
 
-async function saveApplicationEdit() {
-    if (!editingAppId) {
-        alert("ID заявки не найден");
-        return;
-    }
-
-    const formData = {
-        student_name: document.getElementById('edit_student_name').value.trim(),
-        grade: parseInt(document.getElementById('edit_grade').value),
-        phone: document.getElementById('edit_phone').value.trim(),
-        email: document.getElementById('edit_email').value.trim() || null,
-        course_id: document.getElementById('edit_course_id').value ? 
-                  parseInt(document.getElementById('edit_course_id').value) : null
-    };
-
-    try {
-        await apiCall(`/api/applications/${editingAppId}`, 'PUT', formData);
-        alert('✅ Изменения успешно сохранены!');
-        closeEditAppModal();
-        loadApplications();   // обновляем таблицу
-    } catch(e) {
-        console.error(e);
-        alert('Ошибка сохранения изменений');
-    }
-}
-
 // ===================== КУРСЫ =====================
 async function loadCourses() {
     try {
-        const data = await apiCall('/api/courses');
+        const data = await apiCall('/api/courses') || [];
         let html = `<h2>Курсы</h2>
-                    <button onclick="openCourseModal()">+ Новый курс</button>
-                    <table border="1" style="width:100%; margin-top:10px;">
+                    <button onclick="openCourseModal()" class="admin-only">+ Новый курс</button>
+                    <table border="1" style="width:100%; margin-top:10px; border-collapse:collapse;">
                     <tr><th>Название</th><th>Предмет</th><th>Класс</th><th>Цена</th><th>Места</th><th>Действия</th></tr>`;
 
         if (data.length === 0) {
@@ -349,82 +320,10 @@ async function loadCourses() {
     }
 }
 
-async function loadCoursesForEdit(selectedCourseId = null) {
-    try {
-        const courses = await apiCall('/api/courses');
-        const select = document.getElementById('edit_course_id');
-        select.innerHTML = '<option value="">Выберите курс</option>';
-
-        courses.forEach(c => {
-            const option = document.createElement('option');
-            option.value = c.id;
-            option.textContent = `${c.name} (${c.grade} класс)`;
-            if (c.id === selectedCourseId) {
-                option.selected = true;
-            }
-            select.appendChild(option);
-        });
-    } catch(e) {
-        console.error("Не удалось загрузить курсы для редактирования");
-    }
-}
-
-function editCourse(id) {
-    alert("Редактирование курса №" + id + " пока в разработке");
-}
-
-// ===================== РЕДАКТИРОВАНИЕ КУРСА =====================
-async function editCourse(id) {
-    try {
-        const course = await apiCall(`/api/courses/${id}`);
-        editingCourseId = id;
-
-        document.getElementById('edit_course_id').value = course.id;
-        document.getElementById('edit_course_name').value = course.name;
-        document.getElementById('edit_course_subject').value = course.subject;
-        document.getElementById('edit_course_grade').value = course.grade;
-        document.getElementById('edit_course_format').value = course.format || '';
-        document.getElementById('edit_course_price').value = course.price;
-        document.getElementById('edit_course_free_places').value = course.free_places;
-
-        document.getElementById('edit-course-modal').style.display = 'flex';
-    } catch(e) {
-        alert('Не удалось загрузить данные курса');
-    }
-}
-
-async function saveCourseEdit() {
-    if (!editingCourseId) return;
-
-    const formData = {
-        name: document.getElementById('edit_course_name').value.trim(),
-        subject: document.getElementById('edit_course_subject').value.trim(),
-        grade: parseInt(document.getElementById('edit_course_grade').value),
-        format: document.getElementById('edit_course_format').value.trim() || null,
-        price: parseInt(document.getElementById('edit_course_price').value),
-        free_places: parseInt(document.getElementById('edit_course_free_places').value)
-    };
-
-    try {
-        await apiCall(`/api/courses/${editingCourseId}`, 'PUT', formData);
-        alert('✅ Курс обновлён!');
-        closeEditCourseModal();
-        loadCourses();
-    } catch(e) {
-        alert('Ошибка сохранения курса');
-    }
-}
-
-function closeEditCourseModal() {
-    document.getElementById('edit-course-modal').style.display = 'none';
-    editingCourseId = null;
-}
-
 // ===================== УДАЛЕНИЕ =====================
 function confirmDelete(type, id) {
     pendingDelete = { type, id };
     document.getElementById('confirm-title').textContent = type === 'application' ? 'Удалить заявку?' : 'Удалить курс?';
-    document.getElementById('confirm-text').textContent = 'Это действие нельзя отменить!';
     document.getElementById('confirm-modal').style.display = 'flex';
 }
 
@@ -516,15 +415,24 @@ async function submitCourse() {
     }
 }
 
-function closeModal() { document.getElementById('modal').style.display = 'none'; }
-function closeCourseModal() { document.getElementById('course-modal').style.display = 'none'; }
+function closeModal() { 
+    document.getElementById('modal').style.display = 'none'; 
+}
+
+function closeCourseModal() { 
+    document.getElementById('course-modal').style.display = 'none'; 
+}
 
 function logout() {
     localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
     location.reload();
 }
+
+// ===================== АВТОЗАГРУЗКА =====================
 if (token) {
     document.getElementById('auth-screen').style.display = 'none';
     document.getElementById('main-screen').style.display = 'block';
+    adaptUIByRole(userRole);
     showTab('applications');
 }

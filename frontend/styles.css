@@ -15,3 +15,9 @@ th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
     max-height: 90vh; 
     overflow-y: auto;
 }
+
+.status-new { background-color: #fef3c7; color: #92400e; }
+.status-waiting { background-color: #dbeafe; color: #1e40af; }
+.status-overdue { background-color: #fee2e2; color: #b91c1c; font-weight: bold; }
+.status-enrolled { background-color: #d1fae5; color: #065f46; }
+.status-rejected { background-color: #f3e8ff; color: #6b21a8; }
